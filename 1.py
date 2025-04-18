@@ -3,6 +3,7 @@ from tkinter import ttk
 import random
 import math
 from tkinter import simpledialog
+import time
 
 
 # Глобальные переменные
@@ -123,36 +124,55 @@ def update_table():
         tree.insert("", "end", values=(u, v, w))  # Вставляем новые строки с вершинами и весами рёбер
 
 
-# Функция для поиска и отображения гамильтонова пути
 def calculate():
-    n = len(vertices)  # Получаем количество вершин в графе
-    if n < 2:  # Если вершин меньше 2, выводим сообщение об ошибке
+    n = len(vertices)
+    if n < 2:
         path_label.config(text="Добавьте хотя бы 2 вершины!")
         return
 
-    # Создаём матрицу смежности с бесконечными значениями для отсутствующих рёбер
     graph = [[float('inf')] * n for _ in range(n)]
-    for (u, v), w in edges.items():  # Заполняем матрицу смежности весами рёбер
+    for (u, v), w in edges.items():
         graph[u][v] = w
 
-    start_vertex = start_vertex_var.get()  # Получаем выбранную начальную вершину
-    if start_vertex != "Рандомная вершина":  # Если начальная вершина выбрана явно
-        start_vertex = int(start_vertex)  # Преобразуем индекс в целое число
+    start_vertex = start_vertex_var.get()
+    if start_vertex != "Рандомная вершина":
+        start_vertex = int(start_vertex)
 
-    # Ищем гамильтонов путь
-    path = hamiltonian_path(graph, start_vertex, n)
+    start_time = time.time()  # старт замера времени
 
-    if path:  # Если путь найден
-        path_str = " → ".join(map(str, path))  # Формируем строку для отображения пути
-        path_label.config(text=f"Найденный путь: {path_str}")  # Отображаем путь
-        cycle_edges = [(path[i], path[i + 1]) for i in range(len(path) - 1)]  # Формируем рёбра цикла
-        draw_graph(output_canvas, vertices, {(u, v): graph[u][v] for u, v in cycle_edges}, path)  # Рисуем гамильтонов цикл
-        total_length = sum(graph[path[i]][path[i + 1]] for i in range(len(path) - 1))  # Считаем длину пути
-        path_label.config(text=f"Найденный путь: {' → '.join(map(str, path))}\nОбщая длина пути: {total_length}")  # Выводим длину пути
+    if use_ant_colony.get():
+        path, total_length = ant_colony_optimization(
+            graph, start_vertex, n,
+            use_odeyalo=use_odeyalo_mode.get()
+        )
+    elif use_simulated_annealing.get():
+        path, total_length = simulated_annealing(
+            graph, start_vertex, n,
+            fast_mode=use_fast_annealing.get()
+        )
+    else:
+        path = hamiltonian_path(graph, start_vertex, n)
+        if path:
+            total_length = sum(graph[path[i]][path[i + 1]] for i in range(len(path) - 1))
+        else:
+            path_label.config(text="Алгоритм зашел в тупик.")
+            draw_graph(output_canvas, vertices, edges)
+            return
 
-    else:  # Если путь не найден
-        path_label.config(text="Алгоритм зашел в тупик.")  # Сообщаем, что путь не найден
-        draw_graph(output_canvas, vertices, edges)  # Отображаем исходный граф
+    elapsed = time.time() - start_time  # конец замера времени
+
+    # Проверка на "невозможный маршрут"
+    if any(graph[path[i]][path[i + 1]] == float('inf') for i in range(len(path) - 1)):
+        path_label.config(text="Путь содержит отсутствующие рёбра (inf). Убедитесь, что граф связный.")
+        draw_graph(output_canvas, vertices, edges)
+        return
+
+    path_str = " → ".join(map(str, path))
+    cycle_edges = [(path[i], path[i + 1]) for i in range(len(path) - 1)]
+    draw_graph(output_canvas, vertices, {(u, v): graph[u][v] for u, v in cycle_edges}, path)
+    path_label.config(
+        text=f"Найденный путь: {path_str}\nОбщая длина пути: {total_length}\nВремя расчета: {elapsed:.4f} секунд"
+    )
 
 
 
@@ -212,6 +232,32 @@ start_vertex_menu = ttk.Combobox(right_frame, textvariable=start_vertex_var, sta
 start_vertex_menu["values"] = ["Рандомная вершина"]  # По умолчанию только "Рандомная вершина"
 start_vertex_menu.pack(pady=5)  # Размещение выпадающего списка с отступами
 
+# Переменная для выбора алгоритма
+use_simulated_annealing = tk.BooleanVar(value=False)
+
+# Чекбокс для переключения алгоритма
+annealing_checkbox = tk.Checkbutton(right_frame, text="Использовать имитацию отжига", variable=use_simulated_annealing)
+annealing_checkbox.pack(pady=5)
+
+use_fast_annealing = tk.BooleanVar(value=False)
+
+fast_annealing_checkbox = tk.Checkbutton(
+    right_frame,
+    text="Сверхбыстрый отжиг",
+    variable=use_fast_annealing
+)
+fast_annealing_checkbox.pack(pady=2)
+
+use_ant_colony = tk.BooleanVar(value=False)
+use_odeyalo_mode = tk.BooleanVar(value=False)
+
+ant_checkbox = tk.Checkbutton(right_frame, text="Муравьиный алгоритм", variable=use_ant_colony)
+ant_checkbox.pack(pady=5)
+
+odeyalo_checkbox = tk.Checkbutton(right_frame, text="Модификация 'Одеяло'", variable=use_odeyalo_mode)
+odeyalo_checkbox.pack(pady=2)
+
+
 # Кнопка для запуска расчёта
 calculate_button = tk.Button(right_frame, text="Рассчитать", command=calculate)
 calculate_button.pack(pady=10)  # Размещение кнопки с отступами
@@ -261,6 +307,128 @@ clear_button.pack(pady=10)  # Размещение кнопки с отступ�
 input_canvas.bind("<Button-1>", add_vertex)  # Левый клик мыши на холсте для добавления вершины
 input_canvas.bind("<Button-3>", add_edge)  # Правый клик мыши на холсте для добавления рёбер
 tree.bind("<Return>", edit_weight)  # Нажатие клавиши Enter на таблице рёбер для редактирования веса
+
+def simulated_annealing(graph, start, n, initial_temp=10000, cooling_rate=0.995, stop_temp=1e-8, max_iter=1000, fast_mode=False):
+    current_path = list(range(n))
+    if start != "Рандомная вершина":
+        start = int(start)
+        current_path.remove(start)
+        random.shuffle(current_path)
+        current_path = [start] + current_path
+    else:
+        random.shuffle(current_path)
+        start = current_path[0]
+
+    def path_length(path):
+        length = 0
+        for i in range(n - 1):
+            if graph[path[i]][path[i + 1]] == float('inf'):
+                return float('inf')
+            length += graph[path[i]][path[i + 1]]
+        length += graph[path[-1]][path[0]]
+        return length
+
+    current_cost = path_length(current_path)
+    best_path = current_path[:]
+    best_cost = current_cost
+    temp = initial_temp
+    k = 1
+
+    while temp > stop_temp:
+        for _ in range(max_iter):
+            i, j = sorted(random.sample(range(1, n), 2))
+            new_path = current_path[:]
+            new_path[i:j+1] = reversed(new_path[i:j+1])
+
+            new_cost = path_length(new_path)
+            delta = new_cost - current_cost
+
+            if delta < 0 or random.random() < math.exp(-delta / temp):
+                current_path = new_path
+                current_cost = new_cost
+                if current_cost < best_cost:
+                    best_path = current_path[:]
+                    best_cost = current_cost
+
+        # Снижение температуры:
+        if fast_mode:
+            temp = initial_temp / (k ** 2)  # сверхбыстрое охлаждение
+        else:
+            temp *= cooling_rate
+        k += 1
+
+    return best_path + [best_path[0]], best_cost
+
+def ant_colony_optimization(graph, start, n, n_iterations=100, alpha=1, beta=5, rho=0.5, q=100, use_odeyalo=False):
+    pheromone = [[1 for _ in range(n)] for _ in range(n)]  # Начальный феромон
+
+    def path_cost(path):
+        return sum(graph[path[i]][path[i+1]] for i in range(len(path)-1))
+
+    best_path = None
+    best_cost = float('inf')
+
+    for iteration in range(n_iterations):
+        all_paths = []
+        all_costs = []
+
+        if use_odeyalo:
+            # Один муравей из каждой вершины
+            start_positions = list(range(n))
+        else:
+            # Один муравей из одного старта
+            start_positions = [random.choice(range(n)) if start == "Рандомная вершина" else int(start)]
+
+        for start_pos in start_positions:
+            unvisited = set(range(n))
+            current = start_pos
+            path = [current]
+            unvisited.remove(current)
+
+            while unvisited:
+                probs = []
+                total = 0
+                for next_city in unvisited:
+                    tau = pheromone[current][next_city] ** alpha
+                    eta = (1 / graph[current][next_city]) ** beta if graph[current][next_city] != float('inf') else 0
+                    p = tau * eta
+                    probs.append((next_city, p))
+                    total += p
+
+                if total == 0:
+                    break
+
+                r = random.uniform(0, total)
+                cumulative = 0
+                for next_city, p in probs:
+                    cumulative += p
+                    if cumulative >= r:
+                        break
+
+                path.append(next_city)
+                unvisited.remove(next_city)
+                current = next_city
+
+            if len(path) == n and graph[path[-1]][path[0]] != float('inf'):
+                path.append(path[0])
+                cost = path_cost(path)
+                all_paths.append(path)
+                all_costs.append(cost)
+
+                if cost < best_cost:
+                    best_cost = cost
+                    best_path = path
+
+        # Обновление феромона
+        for i in range(n):
+            for j in range(n):
+                pheromone[i][j] *= (1 - rho)
+
+        for path, cost in zip(all_paths, all_costs):
+            for i in range(len(path) - 1):
+                pheromone[path[i]][path[i + 1]] += q / cost
+
+    return best_path, best_cost
 
 
 # Запуск
